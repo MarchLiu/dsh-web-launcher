@@ -1,9 +1,19 @@
 {
   "name": "@local/dsh-web-manager",
   "version": "1.0.8",
-  "private": true,
   "type": "module",
   "description": "Manage the standalone CLI dsh web server from DSH Desktop: start, stop, restart, status and logs, with an isolated environment.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MarchLiu/dsh-web-launcher.git"
+  },
+  "homepage": "https://github.com/MarchLiu/dsh-web-launcher#readme",
+  "bugs": {
+    "url": "https://github.com/MarchLiu/dsh-web-launcher/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
