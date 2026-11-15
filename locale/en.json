@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Dsh Web manager",
+    "description": "Starts, stops and restarts the standalone CLI `dsh web` server, and shows its status and logs inside DSH Desktop. The web process runs in its own session with an isolated environment."
+  }
+}

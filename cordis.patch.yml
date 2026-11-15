@@ -1,0 +1,4 @@
+- insert:
+    - id: dsh-web-manager
+      name: '@local/dsh-web-manager'
+      config: {}
