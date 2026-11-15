@@ -1,7 +1,13 @@
-# @local/dsh-web-manager
+# @mars.liu/dsh-web-launcher
 
 从 DSH Desktop 内管理**独立的 CLI `dsh web` 服务**（即 `~/.dsh` 下、通常监听
 `127.0.0.1:3080` 的那个 web GUI），提供启动 / 停止 / 重启 / 状态 / 日志。
+
+## 安装
+
+在 DSH Desktop 的设置 → Plugins 中按 npm 包名安装
+`@mars.liu/dsh-web-launcher`，或让 Desktop 里的 agent 用 `plugin_manager`
+的 `install_bundle` 安装该包名。
 
 ## 能力
 
@@ -80,7 +86,7 @@ spawn 出的 web 进程：
 ```yaml
 - insert:
     - id: dsh-web-manager
-      name: '@local/dsh-web-manager'
+      name: '@mars.liu/dsh-web-launcher'
       config:
         name: dsh web                     # 面板/结果里显示的名字
         host: 127.0.0.1                   # 探测与监听判定的地址

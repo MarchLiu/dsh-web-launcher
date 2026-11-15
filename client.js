@@ -1,5 +1,5 @@
 /**
- * Client half of @local/dsh-web-manager.
+ * Client half of @mars.liu/dsh-web-launcher.
  *
  * Registers a sidebar panel icon and a central management panel:
  *   - live status of the standalone CLI `dsh web` server (polled over the
@@ -10,7 +10,7 @@
  * `--dsw-alias-*` theme tokens so the panel follows the host theme.
  */
 window.__ModuleLoader__.load({
-  id: '@local/dsh-web-manager',
+  id: '@mars.liu/dsh-web-launcher',
   factory(require) {
     const React = require('react');
     const h = React.createElement;

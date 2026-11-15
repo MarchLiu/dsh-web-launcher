@@ -1,5 +1,5 @@
 /**
- * Host half of @local/dsh-web-manager.
+ * Host half of @mars.liu/dsh-web-launcher.
  *
  * Manages the standalone CLI `dsh web` server (the one that serves the user's
  * own web GUI, e.g. http://127.0.0.1:3080 from ~/.dsh/profiles/web) as a
