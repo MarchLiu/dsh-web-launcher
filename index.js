@@ -203,6 +203,9 @@ export function defaultConfig(user = {}) {
     profileDir: expandHome(typeof user.profileDir === 'string' && user.profileDir ? user.profileDir : `${dshHome}/profiles/web`),
     logFile: expandHome(typeof user.logFile === 'string' && user.logFile ? user.logFile : `${dshHome}/logs/dsh-web-${port}.log`),
     pidFile: expandHome(typeof user.pidFile === 'string' && user.pidFile ? user.pidFile : `${dshHome}/run/dsh-web-manager-${port}.pid`),
+    // Last proven `?token=` entry address, kept outside the pid file so it
+    // survives Stop, Desktop restarts and log growth. Never used for identity.
+    entryFile: expandHome(typeof user.entryFile === 'string' && user.entryFile ? user.entryFile : `${dshHome}/run/dsh-web-manager-${port}.entry.json`),
     command,
     pathPrefix: typeof user.pathPrefix === 'string' && user.pathPrefix ? user.pathPrefix : '/opt/homebrew/bin',
     extraEnv: user.extraEnv && typeof user.extraEnv === 'object' && !Array.isArray(user.extraEnv) ? user.extraEnv : {},
@@ -284,23 +287,221 @@ async function tailLog(cfg, { lines = 200, grep } = {}) {
   }
 }
 
-/** Newest `?token=…` access URL in the log, preferring the configured port. */
-async function readyUrlFromLog(cfg) {
-  const tail = await tailLog(cfg, { lines: 300 });
-  const re = /https?:\/\/[^\s'"<>]+[?&]token=[A-Za-z0-9_-]+/g;
-  const found = [];
-  for (let i = tail.lines.length - 1; i >= 0 && found.length < 8; i--) {
-    re.lastIndex = 0;
-    let match;
-    while ((match = re.exec(tail.lines[i])) !== null) {
-      try {
-        const url = new URL(match[0]);
-        if (url.searchParams.get('token')) found.push(match[0]);
-      } catch { /* not a usable URL */ }
+// ---------------------------------------------------------------------------
+// access URL: discover it, prove it, remember it
+// ---------------------------------------------------------------------------
+
+const ACCESS_URL_RE = /https?:\/\/[^\s'"<>]+[?&]token=[A-Za-z0-9_-]+/g;
+
+/**
+ * A `?token=` URL is only usable for *this* target: same port, loopback (or the
+ * configured host). Old tokens from a previous boot or another port are noise.
+ */
+function accessUrlMatchesTarget(raw, cfg) {
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+  const host = url.hostname.replace(/^\[|\]$/g, '');
+  const loopback = host === '127.0.0.1' || host === 'localhost' || host === '::1';
+  const port = Number(url.port || (url.protocol === 'https:' ? 443 : 80));
+  return (loopback || host === cfg.host) && port === cfg.port;
+}
+
+/** Token URLs in a text blob, newest first, scoped to the configured target. */
+export function parseAccessUrls(text, cfg) {
+  if (typeof text !== 'string' || text === '') return [];
+  const seen = new Set();
+  const out = [];
+  for (const match of text.matchAll(ACCESS_URL_RE)) {
+    const raw = match[0].replace(/[),.;\]}]+$/, ''); // log punctuation is not part of the token
+    if (!accessUrlMatchesTarget(raw, cfg)) continue;
+    let normalized;
+    try {
+      normalized = new URL(raw).toString();
+    } catch {
+      continue;
+    }
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+  }
+  return out.reverse(); // later log line == newer boot
+}
+
+/** Read at most the last `maxBytes` of a file, starting on a line boundary. */
+async function readTailText(file, maxBytes) {
+  let stat;
+  try {
+    stat = await fsp.stat(file);
+  } catch {
+    return null;
+  }
+  const length = Math.min(stat.size, maxBytes);
+  if (length <= 0) return { text: '', size: stat.size };
+  const start = stat.size - length;
+  const handle = await fsp.open(file, 'r');
+  try {
+    const buffer = Buffer.alloc(length);
+    await handle.read(buffer, 0, length, start);
+    let text = buffer.toString('utf8');
+    if (start > 0) text = text.slice(text.indexOf('\n') + 1);
+    return { text, size: stat.size };
+  } finally {
+    await handle.close().catch(() => {});
+  }
+}
+
+/**
+ * The URL printed at boot can scroll arbitrarily far back: verbose `dsh web`
+ * sessions easily push it past any fixed line count. Widening the byte window
+ * step by step finds it without reading a huge log on every poll, and the
+ * result is then persisted (see `writeEntry`) so later polls need no scan.
+ */
+async function accessUrlCandidates(cfg) {
+  for (const bytes of [1_000_000, 4_000_000, 16_000_000]) {
+    const tail = await readTailText(cfg.logFile, bytes);
+    if (!tail) return [];
+    const found = parseAccessUrls(tail.text, cfg);
+    if (found.length) return found.slice(0, 8);
+    if (tail.size <= bytes) break;
+  }
+  return [];
+}
+
+/**
+ * Ask the live server whether it accepts this token: `dsh web` answers a valid
+ * token with a 303 (plus a session cookie) and a stale one with 401. That is
+ * what makes the panel's URL the *current* one instead of merely the last one
+ * that happened to be logged. The probe is a loopback GET per status poll, so
+ * no result is cached — a cached "still valid" could hide a restart that
+ * replaced the token.
+ */
+function probeAccessUrl(cfg, rawUrl, timeoutMs = 1500) {
+  if (!accessUrlMatchesTarget(rawUrl, cfg)) return Promise.resolve(false);
+  let parsed;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return Promise.resolve(false);
+  }
+  const host = parsed.hostname.replace(/^\[|\]$/g, '');
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (ok) => {
+      if (settled) return;
+      settled = true;
+      resolve(ok);
+    };
+    const request = http.request({
+      host,
+      port: cfg.port,
+      path: `${parsed.pathname}${parsed.search}`,
+      method: 'GET',
+      timeout: timeoutMs,
+    }, (res) => {
+      res.resume();
+      const code = res.statusCode ?? 0;
+      done(code >= 200 && code < 400);
+    });
+    request.on('timeout', () => { request.destroy(); done(false); });
+    request.on('error', () => done(false));
+    request.end();
+  });
+}
+
+function entryFileIsUsable(data, cfg) {
+  return Boolean(data)
+    && typeof data.url === 'string'
+    && accessUrlMatchesTarget(data.url, cfg)
+    && (data.pid == null || Number.isInteger(data.pid));
+}
+
+async function readEntry(cfg) {
+  try {
+    const data = JSON.parse(await fsp.readFile(cfg.entryFile, 'utf8'));
+    if (!entryFileIsUsable(data, cfg)) return null;
+    return {
+      url: data.url,
+      pid: Number.isInteger(data.pid) ? data.pid : null,
+      seenAt: typeof data.seenAt === 'string' ? data.seenAt : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function writeEntry(cfg, { url, pid }) {
+  try {
+    await fsp.mkdir(path.dirname(cfg.entryFile), { recursive: true });
+    const body = `${JSON.stringify({
+      url,
+      pid: Number.isInteger(pid) ? pid : null,
+      port: cfg.port,
+      seenAt: new Date().toISOString(),
+    })}\n`;
+    // The file carries a live bearer token; keep it owner-only.
+    await fsp.writeFile(cfg.entryFile, body, { mode: 0o600 });
+    await fsp.chmod(cfg.entryFile, 0o600).catch(() => {});
+  } catch (err) {
+    // Losing the memo only costs a log rescan next time; never fail status.
+    console.error(`[dsh-web-manager] could not persist entry file ${cfg.entryFile}: ${err?.message ?? err}`);
+  }
+}
+
+/**
+ * Best current entry URL and whether it belongs to a live server.
+ *
+ * Order: a verified URL tied to the current pid -> the newest verified URL in
+ * the log -> the remembered URL (unverified) -> the newest logged URL
+ * (unverified). The last two are kept so the panel still offers something to
+ * click when the server is down or the probe is degraded.
+ */
+async function resolveReadyUrl(cfg, { listening, pid } = {}) {
+  const entry = await readEntry(cfg);
+  if (!listening) {
+    return entry
+      ? { url: entry.url, live: false, source: 'entry', at: entry.seenAt }
+      : { url: null, live: false, source: null, at: null };
+  }
+  if (entry?.url && (pid == null || entry.pid == null || entry.pid === pid)) {
+    if (await probeAccessUrl(cfg, entry.url)) {
+      if (entry.pid == null && Number.isInteger(pid)) await writeEntry(cfg, { url: entry.url, pid });
+      return { url: entry.url, live: true, source: 'entry', at: entry.seenAt };
     }
   }
-  const preferred = found.find((u) => new URL(u).port === String(cfg.port));
-  return preferred ?? found[0] ?? null;
+  const candidates = await accessUrlCandidates(cfg);
+  for (const url of candidates) {
+    if (!(await probeAccessUrl(cfg, url))) continue;
+    await writeEntry(cfg, { url, pid });
+    return { url, live: true, source: 'log', at: new Date().toISOString() };
+  }
+  if (entry?.url) return { url: entry.url, live: false, source: 'entry', at: entry.seenAt };
+  if (candidates[0]) return { url: candidates[0], live: false, source: 'log', at: null };
+  return { url: null, live: false, source: null, at: null };
+}
+
+/** Wait briefly after readiness for the boot line to print and be verified. */
+async function ensureReadyUrl(cfg, pid, { timeoutMs = 10_000 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const entry = await readEntry(cfg);
+    if (entry?.url && (entry.pid == null || entry.pid === pid) && await probeAccessUrl(cfg, entry.url)) {
+      if (entry.pid == null) await writeEntry(cfg, { url: entry.url, pid });
+      return entry.url;
+    }
+    for (const url of await accessUrlCandidates(cfg)) {
+      if (await probeAccessUrl(cfg, url)) {
+        await writeEntry(cfg, { url, pid });
+        return url;
+      }
+    }
+    if (Date.now() >= deadline) return null;
+    await delay(1000);
+  }
 }
 
 async function readPidFile(cfg) {
@@ -429,6 +630,7 @@ async function statusOf(cfg) {
   }
   const foreign = Boolean(probe.listening && (!managed || (listener && listener.pid !== managed.pid)));
   const env = isolatedEnv(cfg);
+  const ready = await resolveReadyUrl(cfg, { listening: probe.listening, pid: managed?.pid ?? listener?.pid ?? null });
   return applyRuntimeState(cfg, {
     ok: true,
     plugin: PLUGIN_ID,
@@ -450,7 +652,10 @@ async function statusOf(cfg) {
     /** Capabilities that fell back or are unavailable (e.g. `ps` denied). */
     degraded,
     uptimeSeconds: managed?.startedAt ? Math.max(0, Math.round((Date.now() - Date.parse(managed.startedAt)) / 1000)) : null,
-    readyUrl: await readyUrlFromLog(cfg),
+    readyUrl: ready.url,
+    readyUrlLive: ready.live,
+    readyUrlSource: ready.source,
+    readyUrlAt: ready.at,
     isolation: {
       envKeys: Object.keys(env).sort(),
       pathHead: env.PATH.split(':').slice(0, 3),
@@ -577,6 +782,9 @@ async function startWebInternal(cfg, { waitMs = cfg.readyTimeoutMs, signal } = {
       };
     }
     if (await portProbe(cfg, 400)) {
+      // The boot line with `?token=` is printed around the moment the port
+      // opens; wait for it so `start` returns a URL the caller can use now.
+      await ensureReadyUrl(cfg, child.pid, { timeoutMs: 10_000 });
       const status = await statusOf(cfg);
       return { action: 'start', started: true, ready: true, readyUrl: status.readyUrl, status };
     }
@@ -665,8 +873,10 @@ function createTool(cfg) {
     description:
       'Manage the standalone CLI `dsh web` server that serves the user\u2019s own web GUI ' +
       '(default http://127.0.0.1:3080, profile ~/.dsh/profiles/web) independently of this Desktop app. ' +
-      'Actions: status reports the listener, the manager-spawned process, an HTTP probe and the newest ' +
-      'access URL with its ?token=; start spawns the server detached with an isolated environment; ' +
+      'Actions: status reports the listener, the manager-spawned process, an HTTP probe and the current ' +
+      'access URL with its ?token= (verified against the live server, remembered across Desktop restarts, ' +
+      'and returned even after a stop as the last known address with readyUrlLive=false); start spawns the ' +
+      'server detached with an isolated environment; ' +
       'stop terminates the managed process, or a foreign listener only when its command line matches `dsh web`; ' +
       'restart performs stop then start; logs tails the server log. ' +
       'After start or restart, read the returned access URL \u2014 the ?token= changes between boots.',

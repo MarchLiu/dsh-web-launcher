@@ -1,7 +1,8 @@
 # @mars.liu/dsh-web-launcher
 
 从 DSH Desktop 内管理**独立的 CLI `dsh web` 服务**（即 `~/.dsh` 下、通常监听
-`127.0.0.1:3080` 的那个 web GUI），提供启动 / 停止 / 重启 / 状态 / 日志。
+`127.0.0.1:3080` 的那个 web GUI），提供启动 / 停止 / 重启 / 状态 / 日志，并在面板
+上**始终保留当前访问地址**（含 `?token=`），方便随时重新进入。
 
 ## 安装
 
@@ -14,8 +15,35 @@
 | 入口 | 说明 |
 |---|---|
 | Agent 工具 `dsh_web` | `status` / `start` / `stop` / `restart` / `logs`，返回 JSON |
-| 侧边栏面板图标 + 中央面板 | 实时状态、按钮操作、访问地址（含 `?token=`）、日志查看器（过滤 / 自动刷新）、降级提示 |
+| 侧边栏面板图标 + 中央面板 | 实时状态、常驻访问地址卡片（复制 / 打开）、按钮操作、日志查看器（过滤 / 自动刷新）、降级提示 |
 | HTTP API（仅本机同源） | `/dsh-web-manager/api/{health,status,logs,start,stop,restart}` |
+
+## 入口地址（重入）
+
+面板顶部有一张常驻的访问地址卡片：URL 可点击、可一键复制，右侧按钮直接打开
+Web UI。它不会因为日志变长、Desktop 重启或服务停止而消失。
+
+- **找得到**：启动日志里的 `?token=` 行可能被大量输出挤到很远处（旧实现只看最后
+  300 行，服务跑一阵后地址就丢了）。现在从日志末尾按 1 MB → 4 MB → 16 MB 逐步扩大
+  扫描窗口，找到为止。
+- **是真的**：候选地址必须与配置的 host/port 一致，并且真的被服务接受——`dsh web`
+  对有效 token 返回 `303`（并下发会话 cookie），对过期 token 返回 `401`。每次探测都是
+  一次回环 GET，不缓存"仍然有效"的结论，所以重启换了 token 也不会继续显示旧地址。
+- **记得住**：验证通过的地址写入
+  `~/.dsh/run/dsh-web-manager-<port>.entry.json`（`entryFile` 可配置）。Desktop 重启、
+  日志轮转、服务停止后都还能读到；它不是 pid 文件，**不参与进程身份判断**。
+- **状态诚实**：卡片徽标区分「有效」（绿色）、「未验证」（琥珀，服务在监听但地址尚未
+  被确认）、「已离线」（灰色，保留上次地址供参考）。服务停止时仍显示上次地址，但会
+  明确提示该 token 已失效，重新启动后会换成新地址。
+
+`status` / `start` / `restart` 的结果新增四个字段：
+
+| 字段 | 含义 |
+|---|---|
+| `readyUrl` | 当前（或最近一次）访问地址，含 `?token=` |
+| `readyUrlLive` | 该地址是否刚刚被当前监听的服务器验证通过 |
+| `readyUrlSource` | `entry`（来自记忆文件）或 `log`（本轮从日志发现） |
+| `readyUrlAt` | 该地址被首次记录的时间（ISO 字符串） |
 
 ## 状态颜色
 
@@ -95,6 +123,7 @@ spawn 出的 web 进程：
         profileDir: ~/.dsh/profiles/web   # 必须已存在
         logFile: ~/.dsh/logs/dsh-web-3080.log
         pidFile: ~/.dsh/run/dsh-web-manager-3080.pid
+        entryFile: ~/.dsh/run/dsh-web-manager-3080.entry.json  # 记住最近验证过的入口地址
         command: [/opt/homebrew/bin/node, /opt/homebrew/bin/dsh, web, --no-open]
         pathPrefix: /opt/homebrew/bin
         extraEnv: {}            # 需要额外注入的环境变量（字符串值）
@@ -122,7 +151,9 @@ POST 还要求来源受信：
 
 ## 备注
 
-- `dsh web` 每次启动的 `?token=` 会变化，状态与工具结果里返回的是日志中**最后一条**。
+- `dsh web` 每次启动的 `?token=` 会变化。状态与工具结果返回的是**经当前服务验证
+  通过**的那一条；服务停止后仍保留最近一次地址（`readyUrlLive: false`），方便对照与
+  重新启动，但旧 token 本身已失效。
 - CLI 通过 npm 升级会覆盖 `/opt/homebrew/lib/node_modules/@deepseek-ai/dsh/...` 下的文件；
   本插件只负责拉起/停止，不修改 DSH 自身文件。
 
@@ -138,14 +169,15 @@ DSH Desktop 的插件安装是**不可变 generation 快照**：安装时把目�
 
 ```bash
 node scripts/verify.mjs            # 1. 离线自检（不用重启）
-# 2. 把 package.json 的 version 递增（例如 1.0.8）
+# 2. 把 package.json 的 version 递增（例如 1.1.1）
 # 3. 重新安装：DSH 设置 → Plugins → 从 /Users/mars/jobs/dsh-web-launcher 安装
 #    或让 Desktop 里的 agent 用 plugin_manager install_bundle 装
 # 4. 重启 Harness：菜单「重启」（Ctrl+Shift+R）或退出重开，加载新 generation
 ```
 
 `scripts/verify.mjs` 覆盖：工具/路由注册、请求栅栏的 8 种来源、`looksLikeDshWeb`
-的接受/拒绝矩阵、快速失败（缺 profile、缺二进制）、启动失败 → 红色状态、停止清除失败、
+的接受/拒绝矩阵、入口地址的解析/验证/记忆（假服务：日志超长、日志轮转、token 更换、
+停止后保留）、快速失败（缺 profile、缺二进制）、启动失败 → 红色状态、停止清除失败、
 i18n 键一致性，以及针对真实端口的只读状态/日志。它**不**动线上进程。
 
 为什么必须重启：宿主按 URL 缓存已加载的 ESM 模块，替换安装只会切换下一代的文件，
@@ -158,5 +190,7 @@ i18n 键一致性，以及针对真实端口的只读状态/日志。它**不**�
   （面板路由与侧边栏图标随之生效）。
 - 面板 API 只对回环 + 同源请求开放，因此经反向代理/远程域名访问 Desktop 时面板
   按钮不可用（工具不受影响）。
+- 若 `entryFile` 所在目录不可写，面板仍会从日志实时解析并显示地址，只是无法跨日志
+  轮转/Desktop 重启保留；外部进程若把 URL 打到别的日志，面板只能显示「暂无访问地址」。
 - 外部进程接管要求 `dsh` 后的第一个非 flag 参数就是 `web`；带值的全局 flag 会被
   拒绝（见「进程识别与接管」）。

@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Dsh Web 管理器",
-    "description": "在 DSH Desktop 内启动、停止、重启独立 CLI `dsh web` 服务，并查看其运行状态与日志。web 进程以独立会话、隔离环境运行，不继承 Desktop 的环境变量。"
+    "description": "在 DSH Desktop 内启动、停止、重启独立 CLI `dsh web` 服务，查看状态与日志，并在面板上常驻显示当前访问地址（含 token）方便随时重入。web 进程以独立会话、隔离环境运行，不继承 Desktop 的环境变量。"
   }
 }

@@ -16,9 +16,10 @@
  */
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { apply, looksLikeDshWeb } from '../index.js';
+import { apply, looksLikeDshWeb, parseAccessUrls, defaultConfig } from '../index.js';
 
 const results = [];
 const check = (name, actual, expected) => {
@@ -120,6 +121,36 @@ const reject = [
 for (const [cmd, label] of reject) check(`matcher rejects ${label}`, looksLikeDshWeb(cmd), false);
 
 // ---------------------------------------------------------------------------
+// 3b. access URL parsing: only this target's tokens, newest first
+// ---------------------------------------------------------------------------
+
+const urlCfg = { host: '127.0.0.1', port: 3080 };
+const urlText = [
+  'starting',
+  'dsh web: http://127.0.0.1:3080/?token=old-token',
+  'noise between boots',
+  'dsh web: http://127.0.0.1:3080/?token=new-token',
+  'dsh web: http://127.0.0.1:3099/?token=other-port',
+  'dsh web: http://10.0.0.5:3080/?token=remote-host',
+  'dsh web: https://localhost:3080/?token=localhost-token',
+].join('\n');
+check('parseAccessUrls filters port/host and prefers the newest', parseAccessUrls(urlText, urlCfg), [
+  'https://localhost:3080/?token=localhost-token',
+  'http://127.0.0.1:3080/?token=new-token',
+  'http://127.0.0.1:3080/?token=old-token',
+]);
+check('parseAccessUrls strips log punctuation',
+  parseAccessUrls('see http://127.0.0.1:3080/?token=abc123).', urlCfg),
+  ['http://127.0.0.1:3080/?token=abc123']);
+check('parseAccessUrls ignores text without tokens', parseAccessUrls('no url here', urlCfg), []);
+check('entry file defaults under the dsh run dir',
+  defaultConfig({ port: 3999 }).entryFile,
+  path.join(os.homedir(), '.dsh/run/dsh-web-manager-3999.entry.json'));
+check('entry file can be overridden',
+  defaultConfig({ port: 3999, entryFile: '~/custom.entry.json' }).entryFile,
+  path.join(os.homedir(), 'custom.entry.json'));
+
+// ---------------------------------------------------------------------------
 // 4. start failures must be reported quickly, not as a readiness timeout
 // ---------------------------------------------------------------------------
 
@@ -159,6 +190,70 @@ try {
   check('missing profile is not created', fs.existsSync(path.join(tmp, 'no-such-profile')), false);
 } finally {
   await fsp.rm(tmp, { recursive: true, force: true }).catch(() => {});
+}
+
+// ---------------------------------------------------------------------------
+// 4b. the entry URL is recovered, verified and remembered
+// ---------------------------------------------------------------------------
+
+const entryTmp = await fsp.mkdtemp(path.join(os.tmpdir(), 'dsh-web-entry-verify-'));
+const fake = { token: 'token-one' };
+const fakeServer = http.createServer((req, res) => {
+  const parsed = new URL(req.url ?? '/', 'http://127.0.0.1');
+  if (parsed.pathname === '/' && parsed.searchParams.get('token') === fake.token) {
+    res.writeHead(303, { location: './' });
+  } else {
+    res.writeHead(401);
+  }
+  res.end();
+});
+await new Promise((resolve) => fakeServer.listen(0, '127.0.0.1', resolve));
+const fakePort = fakeServer.address().port;
+const stopFakeServer = () => new Promise((resolve) => {
+  fakeServer.close(() => resolve());
+  fakeServer.closeAllConnections?.();
+});
+try {
+  const logFile = path.join(entryTmp, 'web.log');
+  const entryFile = path.join(entryTmp, 'entry.json');
+  const ctx = instanceWith({
+    port: fakePort,
+    profileDir: entryTmp,
+    logFile,
+    pidFile: path.join(entryTmp, 'web.pid'),
+    entryFile,
+  });
+  const url1 = `http://127.0.0.1:${fakePort}/?token=${fake.token}`;
+  // The boot line sits far beyond any 300-line tail, the shape of the real log.
+  const bootLog = [`dsh web: ${url1}`];
+  for (let i = 0; i < 1500; i++) bootLog.push(`noise ${i}`);
+  await fsp.writeFile(logFile, `${bootLog.join('\n')}\n`);
+
+  let st = (await call(ctx.routes, '/dsh-web-manager/api/status')).json();
+  check('status recovers a URL beyond the old 300-line tail', st.readyUrl, url1);
+  check('recovered URL is verified against the live server', st.readyUrlLive, true);
+  check('verified URL is persisted to the entry file', JSON.parse(await fsp.readFile(entryFile, 'utf8')).url, url1);
+
+  await fsp.writeFile(logFile, 'log rotated, token line gone\n');
+  st = (await call(ctx.routes, '/dsh-web-manager/api/status')).json();
+  check('entry file keeps the URL when the log rotates', st.readyUrl, url1);
+  check('remembered URL is still verified', st.readyUrlLive, true);
+
+  fake.token = 'token-two';
+  const url2 = `http://127.0.0.1:${fakePort}/?token=${fake.token}`;
+  await fsp.writeFile(logFile, `dsh web: ${url2}\n`);
+  st = (await call(ctx.routes, '/dsh-web-manager/api/status')).json();
+  check('a restarted server replaces the remembered URL', st.readyUrl, url2);
+  check('the replacement URL is verified live', st.readyUrlLive, true);
+  check('entry file follows the new token', JSON.parse(await fsp.readFile(entryFile, 'utf8')).url, url2);
+
+  await stopFakeServer();
+  st = (await call(ctx.routes, '/dsh-web-manager/api/status')).json();
+  check('stopped status keeps the last known URL', st.readyUrl, url2);
+  check('stopped status marks the remembered URL as not live', st.readyUrlLive, false);
+} finally {
+  if (fakeServer.listening) await stopFakeServer();
+  await fsp.rm(entryTmp, { recursive: true, force: true }).catch(() => {});
 }
 
 // ---------------------------------------------------------------------------
@@ -202,6 +297,9 @@ check('every t() key exists in both languages', missingKeys, []);
 check('dynamic phase keys exist', Object.keys(DICT.en ?? {}).filter((k) => k.startsWith('phase.')).length, 7);
 check('client paints three distinct state colors', ['run', 'fail', 'stop'].every((tone) => clientSrc.includes(`.dswm-phase.${tone}`)), true);
 check('sidebar icon is tinted by state', clientSrc.includes('TONE_COLOR[tone]'), true);
+check('panel keeps an always-visible entry card', clientSrc.includes('dswm-entry-url'), true);
+check('entry card offers copy and open actions', clientSrc.includes('copyToClipboard') && clientSrc.includes("t('entry.open')"), true);
+check('entry card distinguishes live / pending / offline', ['live', 'pending', 'offline'].every((kind) => clientSrc.includes(`.dswm-entry-badge.${kind}`)), true);
 check('locale registration is one atomic call', /locale\.register\('dshWebManager', \{ en: DICT\.en, zh: DICT\.zh \}\)/.test(clientSrc), true);
 
 for (const [id, label] of [['en', 'english'], ['zh', 'chinese']]) {

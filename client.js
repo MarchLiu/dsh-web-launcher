@@ -26,7 +26,6 @@ window.__ModuleLoader__.load({
         'btn.restart': 'Restart',
         'btn.stop': 'Stop',
         'btn.refresh': 'Refresh',
-        'btn.open': 'Open web UI',
         'phase.running': 'Running',
         'phase.stopped': 'Stopped',
         'phase.failed': 'Start failed',
@@ -45,7 +44,20 @@ window.__ModuleLoader__.load({
         'label.command': 'Boot command',
         'label.isolation': 'Isolated env keys',
         'label.path': 'PATH head',
-        'label.readyUrl': 'Access URL',
+        'entry.title': 'Access URL',
+        'entry.badge.live': 'Live',
+        'entry.badge.pending': 'Unverified',
+        'entry.badge.offline': 'Offline',
+        'entry.open': 'Open web UI',
+        'entry.copy': 'Copy URL',
+        'entry.copied': 'Copied',
+        'entry.copyFail': 'Copy failed — select the URL and copy it manually.',
+        'entry.hint': 'The ?token= changes on every start. This card keeps the latest working address, even after Desktop restarts.',
+        'entry.unverified': 'The server is listening, but this address has not been confirmed yet. Press Refresh; if it still fails, check the log below.',
+        'entry.stale': 'The server is not running. This is the last known address; start it again to get a working token — this one has expired.',
+        'entry.empty': 'No access URL yet',
+        'entry.emptyHint': 'Start the server; the access URL appears here and stays for later re-entry.',
+        'entry.emptyRunning': 'The server is running, but no access URL has been found yet. Wait a moment and press Refresh, or check the log below.',
         'foreign.hint': 'An external dsh web process is listening. Because its command line matches `dsh web`, Restart or Stop may take it over; Start will replace it.',
         'degraded.hint': 'Process inspection is unavailable (`ps` was denied), so the pid record is trusted as-is. Start and stop still work; taking over an external listener is refused.',
         'log.title': 'Log tail',
@@ -64,7 +76,6 @@ window.__ModuleLoader__.load({
         'btn.restart': '重启',
         'btn.stop': '停止',
         'btn.refresh': '刷新',
-        'btn.open': '打开 Web UI',
         'phase.running': '运行中',
         'phase.stopped': '已停止',
         'phase.failed': '启动失败',
@@ -83,7 +94,20 @@ window.__ModuleLoader__.load({
         'label.command': '启动命令',
         'label.isolation': '隔离环境变量',
         'label.path': 'PATH 前缀',
-        'label.readyUrl': '访问地址',
+        'entry.title': '访问地址',
+        'entry.badge.live': '有效',
+        'entry.badge.pending': '未验证',
+        'entry.badge.offline': '已离线',
+        'entry.open': '打开 Web UI',
+        'entry.copy': '复制地址',
+        'entry.copied': '已复制',
+        'entry.copyFail': '复制失败——请手动选中地址后复制。',
+        'entry.hint': '每次启动 ?token= 都会变化；这里始终保留最近一次可用的地址，Desktop 重启后也不会丢。',
+        'entry.unverified': '服务正在监听，但这个地址尚未确认可用。可点「刷新」重试；仍然不行就检查下方日志。',
+        'entry.stale': '服务当前未运行。这是上一次的地址；重新启动后才能使用（该 token 已失效）。',
+        'entry.empty': '暂无访问地址',
+        'entry.emptyHint': '启动服务后，访问地址会固定显示在这里，方便随时重新进入。',
+        'entry.emptyRunning': '服务已运行，但暂时没有从日志中找到访问地址。稍等后点「刷新」，或检查下方日志。',
         'foreign.hint': '当前有一个外部 dsh web 进程在监听。由于其命令行匹配 `dsh web`，重启/停止可以接管它，启动也会先替换它。',
         'degraded.hint': '进程信息不可用（`ps` 被拒绝），当前直接信任 pid 记录。启动/停止仍可用；不会接管外部监听进程。',
         'log.title': '日志末尾',
@@ -113,7 +137,24 @@ window.__ModuleLoader__.load({
 .dswm-phase.fail{color:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-state-error-primary);background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 12%,transparent);}
 .dswm-sub{color:var(--dsw-alias-label-secondary);font-size:12px;}
 .dswm-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
+.dswm-entry{display:flex;flex-direction:column;gap:7px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;padding:10px 12px;background:var(--dsw-alias-bg-layer-1);}
+.dswm-entry.live{border-color:color-mix(in srgb,var(--dsw-alias-state-success-primary) 55%,var(--dsw-alias-border-l1));}
+.dswm-entry.empty{border-style:dashed;}
+.dswm-entry-head{display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
+.dswm-entry-title{font-weight:600;}
+.dswm-entry-badge{display:inline-flex;align-items:center;border:1px solid transparent;border-radius:999px;padding:1px 8px;font-size:11px;font-weight:600;white-space:nowrap;}
+.dswm-entry-badge.live{color:var(--dsw-alias-state-success-primary);border-color:var(--dsw-alias-state-success-primary);background:color-mix(in srgb,var(--dsw-alias-state-success-primary) 12%,transparent);}
+.dswm-entry-badge.pending{color:var(--dsw-alias-state-warn-primary);border-color:var(--dsw-alias-state-warn-primary);background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 12%,transparent);}
+.dswm-entry-badge.offline{color:var(--dsw-alias-label-secondary);border-color:var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-base);}
+.dswm-entry-tools{display:flex;gap:8px;align-items:center;margin-left:auto;}
+.dswm-entry-url{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;line-height:1.5;word-break:break-all;color:var(--dsw-alias-brand-primary);text-decoration:none;user-select:all;}
+.dswm-entry-url:hover{text-decoration:underline;}
+.dswm-entry-url.empty{font-family:inherit;font-size:12px;color:var(--dsw-alias-label-secondary);user-select:none;}
+.dswm-entry-hint{font-size:12px;color:var(--dsw-alias-label-secondary);}
+.dswm-entry-hint.fail{color:var(--dsw-alias-state-error-primary);}
 .dswm-btn{appearance:none;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);border-radius:8px;padding:5px 14px;font-size:13px;cursor:pointer;}
+.dswm-btn.sm{padding:3px 10px;font-size:12px;}
+a.dswm-btn{display:inline-flex;align-items:center;text-decoration:none;}
 .dswm-btn:hover{border-color:var(--dsw-alias-border-l2);}
 .dswm-btn:disabled{opacity:.5;cursor:default;}
 .dswm-btn.primary{background:var(--dsw-alias-brand-primary);border-color:transparent;color:#ffffff;}
@@ -160,6 +201,33 @@ window.__ModuleLoader__.load({
       if (hh > 0) return `${hh}h ${m % 60}m`;
       if (m > 0) return `${m}m ${s % 60}s`;
       return `${s}s`;
+    }
+
+    /** Clipboard with a selection fallback: the Desktop page is not always secure. */
+    async function copyToClipboard(text) {
+      try {
+        if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(text);
+          return true;
+        }
+      } catch { /* insecure context or permission denied: fall through */ }
+      try {
+        if (typeof document === 'undefined') return false;
+        const area = document.createElement('textarea');
+        area.value = text;
+        area.setAttribute('readonly', 'readonly');
+        area.style.position = 'fixed';
+        area.style.top = '-1000px';
+        area.style.opacity = '0';
+        document.body.appendChild(area);
+        area.select();
+        area.setSelectionRange(0, area.value.length);
+        const ok = document.execCommand('copy');
+        document.body.removeChild(area);
+        return ok;
+      } catch {
+        return false;
+      }
     }
 
     // -----------------------------------------------------------------------
@@ -319,8 +387,10 @@ window.__ModuleLoader__.load({
       const [logLines, setLogLines] = React.useState(200);
       const [grep, setGrep] = React.useState('');
       const [autoRefresh, setAutoRefresh] = React.useState(true);
+      const [copyState, setCopyState] = React.useState('idle');
       const preRef = React.useRef(null);
       const firstLoad = React.useRef(true);
+      const copyTimer = React.useRef(null);
 
       const loadLogs = React.useCallback(async (lines, filter) => {
         try {
@@ -357,6 +427,10 @@ window.__ModuleLoader__.load({
         if (autoRefresh && preRef.current) preRef.current.scrollTop = preRef.current.scrollHeight;
       }, [logs, autoRefresh]);
 
+      React.useEffect(() => () => {
+        if (copyTimer.current) clearTimeout(copyTimer.current);
+      }, []);
+
       const act = React.useCallback(async (name, body) => {
         statusStore.beginAction(name);
         try {
@@ -386,6 +460,60 @@ window.__ModuleLoader__.load({
           : status.listener ? `pid ${status.listener.pid} (external)` : '—')
         : '—';
 
+      // The entry address is the panel's anchor: keep showing the last known
+      // one when the server is down, but never claim it is live without the
+      // Host half's token probe.
+      const readyUrl = status?.readyUrl || null;
+      const readyLive = status
+        ? (typeof status.readyUrlLive === 'boolean' ? status.readyUrlLive : Boolean(status.listening && readyUrl))
+        : false;
+      const readyBadge = !readyUrl ? null : readyLive ? 'live' : status?.listening ? 'pending' : 'offline';
+      const readyHint = readyUrl
+        ? (readyLive ? t('entry.hint') : status?.listening ? t('entry.unverified') : t('entry.stale'))
+        : status?.listening ? t('entry.emptyRunning') : t('entry.emptyHint');
+
+      const copy = async () => {
+        if (!readyUrl) return;
+        const ok = await copyToClipboard(readyUrl);
+        setCopyState(ok ? 'ok' : 'fail');
+        if (copyTimer.current) clearTimeout(copyTimer.current);
+        copyTimer.current = setTimeout(() => setCopyState('idle'), 2500);
+      };
+
+      const entryCard = h('div', { className: `dswm-entry ${readyLive ? 'live' : readyUrl ? 'stale' : 'empty'}` }, [
+        h('div', { className: 'dswm-entry-head' }, [
+          h('span', { className: 'dswm-entry-title' }, t('entry.title')),
+          readyBadge
+            ? h('span', { className: `dswm-entry-badge ${readyBadge}` },
+              t(`entry.badge.${readyBadge}`))
+            : null,
+          h('span', { className: 'dswm-entry-tools' }, [
+            readyUrl
+              ? h('button', {
+                type: 'button',
+                className: 'dswm-btn sm',
+                onClick: copy,
+                title: t('entry.copy'),
+              }, t(copyState === 'ok' ? 'entry.copied' : 'entry.copy'))
+              : null,
+            readyUrl
+              ? h('a', {
+                className: 'dswm-btn sm primary',
+                href: readyUrl,
+                target: '_blank',
+                rel: 'noreferrer',
+                title: readyUrl,
+              }, t('entry.open'))
+              : null,
+          ]),
+        ]),
+        readyUrl
+          ? h('a', { className: 'dswm-entry-url', href: readyUrl, target: '_blank', rel: 'noreferrer', title: readyUrl }, readyUrl)
+          : h('div', { className: 'dswm-entry-url empty' }, t('entry.empty')),
+        h('div', { className: `dswm-entry-hint${copyState === 'fail' ? ' fail' : ''}` },
+          copyState === 'fail' ? t('entry.copyFail') : readyHint),
+      ]);
+
       const rows = [];
       const row = (label, value, code) => rows.push(
         h('dt', { key: `${label}-k` }, label),
@@ -400,13 +528,6 @@ window.__ModuleLoader__.load({
       row(t('label.command'), status ? status.target.command.join(' ') : '—', true);
       row(t('label.isolation'), status ? status.isolation.envKeys.join(', ') : '—', true);
       row(t('label.path'), status ? status.isolation.pathHead.join(' : ') : '—', true);
-      if (status && status.readyUrl) {
-        rows.push(
-          h('dt', { key: 'url-k' }, t('label.readyUrl')),
-          h('dd', { key: 'url-v', className: 'dswm-code' },
-            h('a', { className: 'dswm-link', href: status.readyUrl, target: '_blank', rel: 'noreferrer' }, status.readyUrl)),
-        );
-      }
 
       return h('div', { className: 'dswm-root' }, [
         h('style', null, CSS),
@@ -417,6 +538,7 @@ window.__ModuleLoader__.load({
             h('span', { className: `dswm-phase ${tone}` }, phaseText),
             h('span', { className: 'dswm-sub' }, t('subtitle')),
           ]),
+          entryCard,
           h('div', { className: 'dswm-actions' }, [
             h('button', {
               className: 'dswm-btn primary', disabled: working,
@@ -431,10 +553,6 @@ window.__ModuleLoader__.load({
               onClick: () => act('stop', { force: true }),
             }, t('btn.stop')),
             h('button', { className: 'dswm-btn', disabled: working, onClick: () => { statusStore.refresh(); loadLogs(logLines, grep); } }, t('btn.refresh')),
-            status && status.readyUrl
-              ? h('a', { className: 'dswm-link', href: status.readyUrl, target: '_blank', rel: 'noreferrer' },
-                h('button', { className: 'dswm-btn' }, t('btn.open')))
-              : null,
           ]),
         ]),
         error ? h('div', { className: 'dswm-banner', role: 'alert' }, `${t('error.prefix')}${error}`) : null,
